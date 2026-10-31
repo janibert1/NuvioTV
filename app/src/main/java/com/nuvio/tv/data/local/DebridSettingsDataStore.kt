@@ -75,18 +75,19 @@ class DebridSettingsDataStore @Inject constructor(
                     codecFilter = enumValueOrDefault(prefs[streamCodecFilterKey], DebridStreamCodecFilter.ANY)
                 )
             val streamSortMode = legacyModeForSortCriteria(streamPreferences.sortCriteria)
+            val torboxKey = prefs[torboxApiKeyKey]?.trim()?.takeIf { it.isNotBlank() } ?: com.nuvio.tv.domain.model.DEFAULT_TORBOX_API_KEY
             DebridSettings(
-                enabled = prefs[enabledKey] ?: false,
+                enabled = prefs[enabledKey] ?: true,
                 cloudLibraryEnabled = prefs[cloudLibraryEnabledKey] ?: true,
-                torboxApiKey = prefs[torboxApiKeyKey] ?: "",
+                torboxApiKey = torboxKey,
                 premiumizeApiKey = prefs[premiumizeApiKeyKey] ?: "",
                 realDebridApiKey = prefs[realDebridApiKeyKey] ?: "",
                 preferredResolverProviderId = preferredResolverProviderId(
                     stored = prefs[preferredResolverProviderIdKey],
-                    torboxApiKey = prefs[torboxApiKeyKey] ?: "",
+                    torboxApiKey = torboxKey,
                     premiumizeApiKey = prefs[premiumizeApiKeyKey] ?: "",
                     realDebridApiKey = prefs[realDebridApiKeyKey] ?: ""
-                ),
+                ).ifBlank { DebridProviders.TORBOX_ID },
                 instantPlaybackPreparationLimit = normalizeDebridInstantPlaybackPreparationLimit(
                     prefs[instantPlaybackPreparationLimitKey] ?: 0
                 ),

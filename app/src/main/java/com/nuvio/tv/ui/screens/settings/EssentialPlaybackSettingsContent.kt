@@ -62,6 +62,7 @@ fun EssentialPlaybackSettingsContent(
                         subtitle = stringResource(R.string.essential_stream_selection_subtitle),
                         value = when (settings?.streamAutoPlayMode) {
                             StreamAutoPlayMode.FIRST_STREAM -> stringResource(R.string.stream_auto_play_first_stream)
+                            StreamAutoPlayMode.NETWORK_QUALITY -> stringResource(R.string.autoplay_mode_network_quality)
                             StreamAutoPlayMode.MANUAL -> stringResource(R.string.stream_auto_play_manual_short)
                             StreamAutoPlayMode.REGEX_MATCH -> stringResource(R.string.stream_auto_play_smart_match)
                             null -> ""

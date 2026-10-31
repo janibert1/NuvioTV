@@ -333,6 +333,76 @@ class StreamAutoPlaySelectorTest {
         assertEquals(listOf(regular, cachedDebrid), ordered)
     }
 
+    @Test
+    fun `NETWORK_QUALITY picks highest quality stream within resolution cap`() {
+        val p2160 = stream(
+            addonName = "AddonA",
+            url = "https://example.com/2160.mp4",
+            name = "Movie 2160p UHD"
+        )
+        val p1080 = stream(
+            addonName = "AddonA",
+            url = "https://example.com/1080.mp4",
+            name = "Movie 1080p FHD"
+        )
+        val p720 = stream(
+            addonName = "AddonA",
+            url = "https://example.com/720.mp4",
+            name = "Movie 720p HD"
+        )
+
+        val selected1080 = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(p2160, p1080, p720),
+            mode = StreamAutoPlayMode.NETWORK_QUALITY,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("AddonA"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            deviceMaxResolutionPx = 1080
+        )
+        assertEquals(p1080, selected1080)
+
+        val selected2160 = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(p2160, p1080, p720),
+            mode = StreamAutoPlayMode.NETWORK_QUALITY,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("AddonA"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            deviceMaxResolutionPx = 2160
+        )
+        assertEquals(p2160, selected2160)
+    }
+
+    @Test
+    fun `NETWORK_QUALITY filters stream exceeding bandwidth budget`() {
+        val hugeStream = stream(
+            addonName = "AddonA",
+            url = "https://example.com/huge.mp4",
+            name = "Movie 1080p 50GB"
+        )
+        val smallStream = stream(
+            addonName = "AddonA",
+            url = "https://example.com/small.mp4",
+            name = "Movie 720p 2GB"
+        )
+
+        val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(hugeStream, smallStream),
+            mode = StreamAutoPlayMode.NETWORK_QUALITY,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("AddonA"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            deviceMaxResolutionPx = 1080,
+            measuredSpeedMbps = 10.0 // budget is 7.5 Mbps; 50GB requires ~75Mbps, 2GB requires ~3Mbps
+        )
+        assertEquals(smallStream, selected)
+    }
+
     private fun stream(
         addonName: String,
         url: String? = null,

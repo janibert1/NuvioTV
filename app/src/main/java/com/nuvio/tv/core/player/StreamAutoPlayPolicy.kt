@@ -11,7 +11,8 @@ object StreamAutoPlayPolicy {
 
         return when (playerSettings.streamAutoPlayMode) {
             StreamAutoPlayMode.MANUAL -> false
-            StreamAutoPlayMode.FIRST_STREAM -> true
+            StreamAutoPlayMode.FIRST_STREAM,
+            StreamAutoPlayMode.NETWORK_QUALITY -> true
             StreamAutoPlayMode.REGEX_MATCH -> isRegexSelectionConfigured(playerSettings.streamAutoPlayRegex)
         }
     }

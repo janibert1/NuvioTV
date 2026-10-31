@@ -1,9 +1,12 @@
 package com.nuvio.tv.core.player
 
 import com.nuvio.tv.core.build.AppFeaturePolicy
+import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.domain.model.AddonStreams
+import com.nuvio.tv.domain.model.DebridSettings
+import com.nuvio.tv.domain.model.DebridStreamQuality
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.StreamDebridCacheState
 
@@ -67,7 +70,9 @@ object StreamAutoPlaySelector {
         selectedPlugins: Set<String>,
         preferredBingeGroup: String? = null,
         preferBingeGroupInSelection: Boolean = false,
-        bingeGroupOnly: Boolean = false
+        bingeGroupOnly: Boolean = false,
+        deviceMaxResolutionPx: Int? = null,
+        measuredSpeedMbps: Double? = null
     ): Stream? {
         if (streams.isEmpty()) return null
 
@@ -119,6 +124,13 @@ object StreamAutoPlaySelector {
         return when (mode) {
             StreamAutoPlayMode.MANUAL -> null
             StreamAutoPlayMode.FIRST_STREAM -> candidateStreams.firstOrNull { isPlayable(it) }
+            StreamAutoPlayMode.NETWORK_QUALITY -> {
+                rankByNetworkQuality(
+                    candidates = candidateStreams,
+                    deviceMaxResolutionPx = deviceMaxResolutionPx,
+                    measuredSpeedMbps = measuredSpeedMbps
+                )
+            }
             StreamAutoPlayMode.REGEX_MATCH -> {
                 val pattern = regexPattern.trim()
  
@@ -166,7 +178,93 @@ object StreamAutoPlaySelector {
                 if (matchingStreams.isEmpty()) return null
                 matchingStreams.firstOrNull { isPlayable(it) }
             }
-
         }
+    }
+
+    fun rankByNetworkQuality(
+        candidates: List<Stream>,
+        deviceMaxResolutionPx: Int? = null,
+        measuredSpeedMbps: Double? = null
+    ): Stream? {
+        val playable = candidates.filter { isPlayable(it) }
+        if (playable.isEmpty()) return null
+
+        val budgetMbps = measuredSpeedMbps?.let { it * 0.75 }
+        val defaultSettings = DebridSettings()
+
+        val parsed = playable.map { stream ->
+            val facts = DirectDebridStreamFilter.facts(stream, defaultSettings)
+            val bitrateMbps = streamEstimatedBitrateMbps(stream, facts.size)
+            Triple(stream, facts, bitrateMbps)
+        }
+
+        // Filter streams that exceed bandwidth budget (if known)
+        val withinBandwidth = if (budgetMbps != null) {
+            val matching = parsed.filter { (_, _, bitrate) ->
+                bitrate == null || bitrate <= budgetMbps
+            }
+            if (matching.isNotEmpty()) matching else parsed
+        } else {
+            parsed
+        }
+
+        // Filter streams that exceed device display resolution (if cap provided or detected)
+        val effectiveCap = deviceMaxResolutionPx ?: runCatching {
+            val metrics = android.content.res.Resources.getSystem().displayMetrics
+            val minDim = kotlin.math.min(metrics.widthPixels, metrics.heightPixels)
+            if (minDim > 0) minDim else null
+        }.getOrNull()
+
+        val withinResolution = if (effectiveCap != null && effectiveCap > 0) {
+            val matching = withinBandwidth.filter { (_, facts, _) ->
+                facts.resolution.value == 0 || facts.resolution.value <= effectiveCap
+            }
+            if (matching.isNotEmpty()) matching else withinBandwidth
+        } else {
+            withinBandwidth
+        }
+
+        return withinResolution
+            .sortedWith(
+                compareByDescending<Triple<Stream, DirectDebridStreamFilter.StreamFacts, Double?>> { (_, facts, _) -> facts.resolution.value }
+                    .thenByDescending { (_, facts, _) -> qualityWeight(facts.quality) }
+                    .thenByDescending { (_, facts, _) -> facts.size ?: 0L }
+            )
+            .firstOrNull()
+            ?.first
+    }
+
+    private fun qualityWeight(quality: DebridStreamQuality): Int = when (quality) {
+        DebridStreamQuality.BLURAY_REMUX -> 100
+        DebridStreamQuality.BLURAY -> 90
+        DebridStreamQuality.WEB_DL -> 80
+        DebridStreamQuality.WEBRIP -> 70
+        DebridStreamQuality.HDRIP -> 60
+        DebridStreamQuality.HD_RIP -> 50
+        DebridStreamQuality.DVDRIP -> 40
+        DebridStreamQuality.HDTV -> 30
+        DebridStreamQuality.TC, DebridStreamQuality.TS -> 20
+        DebridStreamQuality.CAM, DebridStreamQuality.SCR -> 10
+        DebridStreamQuality.UNKNOWN -> 0
+    }
+
+    fun streamEstimatedBitrateMbps(stream: Stream, sizeBytes: Long? = null): Double? {
+        val bytes = sizeBytes ?: parseSizeFromText(stream) ?: return null
+        val durationSec = 5400.0 // 90 min default baseline
+        return (bytes * 8.0) / (durationSec * 1_000_000.0)
+    }
+
+    fun parseSizeFromText(stream: Stream): Long? {
+        val text = "${stream.name.orEmpty()} ${stream.title.orEmpty()} ${stream.description.orEmpty()}"
+        val regex = Regex("""(?i)(\d+(?:\.\d+)?)\s*(GB|MB|GiB|MiB)""")
+        val match = regex.find(text) ?: return null
+        val number = match.groupValues[1].toDoubleOrNull() ?: return null
+        val unit = match.groupValues[2].uppercase()
+        val bytesPerUnit = when {
+            unit.startsWith("G") -> 1024L * 1024L * 1024L
+            unit.startsWith("M") -> 1024L * 1024L
+            else -> 1024L
+        }
+        return (number * bytesPerUnit).toLong()
     }
 }

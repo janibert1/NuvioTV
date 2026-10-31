@@ -1893,7 +1893,17 @@ internal fun PlayerRuntimeController.tryAutoSelectPreferredSubtitleFromAvailable
         selectAddonSubtitle(addonMatch)
         maybeRunAutomaticSubtitleSync(addonMatch) // AutoSync hook
     } else {
-        Log.d(PlayerRuntimeController.TAG, "AUTO_SUB no addon match for targets=$targets")
+        val fallbackMatch = state.addonSubtitles.firstOrNull {
+            !useForcedSubtitles || !addonSubtitleIsForced(it)
+        } ?: state.addonSubtitles.firstOrNull()
+        if (fallbackMatch != null && state.selectedSubtitleTrackIndex < 0 && state.selectedAddonSubtitle == null) {
+            autoSubtitleSelected = true
+            Log.d(PlayerRuntimeController.TAG, "AUTO_SUB fallback to first addon: lang=${fallbackMatch.lang} id=${fallbackMatch.id}")
+            selectAddonSubtitle(fallbackMatch)
+            maybeRunAutomaticSubtitleSync(fallbackMatch)
+        } else {
+            Log.d(PlayerRuntimeController.TAG, "AUTO_SUB no addon match for targets=$targets")
+        }
     }
 }
 
